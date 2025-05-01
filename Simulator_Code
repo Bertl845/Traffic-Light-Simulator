@@ -1,0 +1,354 @@
+namespace Traffic_Light_Simulation
+{
+    using System;
+    using System.Threading.Tasks;
+
+    public enum LightColor { Red, Yellow, Green }
+
+    public class TrafficLight
+    {
+        public LightColor NorthSouth { get; set; } = LightColor.Green;
+        public LightColor EastWest { get; set; } = LightColor.Red;
+        public LightColor NorthLeft { get; set; } = LightColor.Red;
+        public LightColor SouthLeft { get; set; } = LightColor.Red;
+        public LightColor EastLeft { get; set; } = LightColor.Red;
+        public LightColor WestLeft { get; set; } = LightColor.Red;
+
+        public DateTime LastGreenChangeTime { get; set; } = DateTime.Now;
+
+        public string CurrentGreenPhase { get; set; } = "NS";
+    }
+
+    public class TrafficState
+    {
+        public int count120L => Program.count120L;
+        public int countMillerL => Program.countMillerL;
+        public int countMillerEW => Program.countMillerEW;
+
+        public TrafficLight Lights { get; set; } = new TrafficLight();        
+
+    }
+
+    
+    public class TrafficSimulator
+    {
+        private Random rng = new Random();
+
+        public TrafficLight Lights { get; set; } = new TrafficLight();
+        public async void StartSimulation()
+        {
+            _ = SpawnEastWestCars();
+            _ = SpawnMillerLeftWest();
+            _ = SpawnMillerLeftEast();
+            _ = SpawnHwy120LeftNorth();
+            _ = SpawnHwy120LeftSouth();
+            _ = RunTrafficController();
+            _ = MonitorStatus();
+        }
+
+        private async Task SpawnEastWestCars()
+        {
+            while (true)
+            {
+                int delay = rng.Next(3000, 12001);
+                await Task.Delay(delay);
+                SpawnCar("East-West");
+            }
+        }
+
+        private async Task SpawnMillerLeftWest()
+        {
+            while (true)
+            {
+                int delay = rng.Next(15000, 30001);
+                await Task.Delay(delay);
+                SpawnCar("West-Left");
+            }
+        }
+
+        private async Task SpawnMillerLeftEast()
+        {
+            while (true)
+            {
+                int delay = rng.Next(15000, 30001);
+                await Task.Delay(delay);
+                SpawnCar("East-Left");
+            }
+        }
+        private async Task SpawnHwy120LeftNorth()
+        {
+            while (true)
+            {
+                int delay = rng.Next(15000, 30001);
+                await Task.Delay(delay);
+                SpawnCar("North-Left");
+            }
+        }
+        private async Task SpawnHwy120LeftSouth()
+        {
+            while (true)
+            {
+                int delay = rng.Next(15000, 30001);
+                await Task.Delay(delay);
+                SpawnCar("South-Left");
+            }
+        }
+
+        private void SpawnCar(string lane)
+        {
+            Console.WriteLine($"[Time {DateTime.Now:T}] Car spawned in {lane} lane.");
+
+            switch(lane)
+            {
+                case "North-Left":
+                case "South-Left":
+                    Program.count120L++;
+                    break;
+
+                case "East-Left":
+                case "West-Left":
+                    Program.countMillerL++;
+                    break;
+
+                case "East-West":
+                    Program.countMillerEW++;
+                    break;
+
+                default: 
+                    Console.WriteLine($"Unknown lane: {lane}");
+                    break;
+            }
+
+            Console.WriteLine($"Current Counts -> 120L: {Program.count120L}, MillerL: {Program.countMillerL}, MillerEW: {Program.countMillerEW}");
+        }
+
+        public async Task RunTrafficController()
+        {
+            while (true)
+            {
+                await Task.Delay(1000);
+
+                TimeSpan sinceGreen = DateTime.Now - Lights.LastGreenChangeTime;
+
+                if(sinceGreen.TotalSeconds >= 10) 
+                {
+                    if (Program.count120L >= 2 && Program.count120L > Program.countMillerL && Lights.CurrentGreenPhase != "MillerLeft")
+                    {
+                        await TransitionTo("120Left");
+                        continue;
+                    }
+
+                    if(Program.countMillerL >= 2 && Program.countMillerL > Program.count120L && Lights.CurrentGreenPhase != "120Left")
+                    {
+                        await TransitionTo("MillerLeft");
+                        continue;
+                    }
+
+                    if(Program.countMillerEW >= 4)
+                    {
+                        await TransitionTo("MillerStraight");
+                        continue;
+                    }
+
+                    else
+                    {
+                        await TransitionTo("NS");
+                        continue;
+                    }
+                }
+
+                if (TrainCrossingActive)
+                {
+                    TimeSpan trainElapsed = DateTime.Now - TrainStartTime;
+                    if (trainElapsed.TotalMilliseconds >= TrainDuration)
+                    {
+                        TrainCrossingActive = false;
+                        Console.WriteLine($"\n[RAILROAD] Train cleared the crossing at {DateTime.Now:T}");
+                    }
+                    else
+                    {
+                        
+                        Console.WriteLine("[BLOCKED] Train is active — skipping Miller Parkway traffic this cycle.");
+                        continue; 
+                    }
+                }
+
+                if (sinceGreen.TotalSeconds >= 24) 
+                {
+                    await TransitionTo("NS");
+                }
+            }
+        }
+
+
+        private void SetAllRed()
+        {
+            Lights.NorthSouth = LightColor.Red;
+            Lights.EastWest = LightColor.Red;
+            Lights.NorthLeft = LightColor.Red;
+            Lights.SouthLeft = LightColor.Red;
+            Lights.EastLeft = LightColor.Red;
+            Lights.WestLeft = LightColor.Red;
+        }
+        const int YellowDuration = 3000;
+        const int MinGreen = 10000;
+        const int MaxMillerGreen = 24000;
+
+        private async Task TransitionTo(string phase)
+        {
+            Console.WriteLine($"\n[Transition] {DateTime.Now:T} Preparing to switch to: {phase}");
+
+            await ApplyYellow();
+
+            SetAllRed();
+
+            switch(phase)
+            {
+                case "120Left":
+                    Lights.NorthLeft = LightColor.Green;
+                    Lights.SouthLeft= LightColor.Green;
+                    Program.count120L = 0;
+                    
+                    break;
+
+                case "MillerLeft":
+                    Lights.EastLeft = LightColor.Green;
+                    Lights.WestLeft= LightColor.Green;
+                    Program.countMillerL = 0;
+                    
+                    break;
+
+                case "MillerStraight":
+                    Lights.EastWest = LightColor.Green;
+                    Program.countMillerEW = 0;
+                    
+                    break;
+
+                default:
+                    Lights.NorthSouth = LightColor.Green;
+                    
+                    break;
+
+            }
+
+            if (TrainCrossingActive && (phase == "MillerEW" || phase == "MillerLeft"))
+            {
+                Console.WriteLine($"[WARN] Cannot switch to {phase} while train is active.");
+                return;
+            }
+
+            Lights.CurrentGreenPhase = phase;
+            Lights.LastGreenChangeTime = DateTime.Now;
+
+            PrintLights();
+
+            _ = MonitorGreenPhase(phase);
+
+        }
+
+        public void PrintLights()
+        {
+            Console.WriteLine("========== TRAFFIC LIGHT STATE ==========");
+            Console.WriteLine($"Time: {DateTime.Now:T}");
+            Console.WriteLine($"North-South      : {Lights.NorthSouth}");
+            Console.WriteLine($"East-West        : {Lights.EastWest}");
+            Console.WriteLine($"North Left Turn  : {Lights.NorthLeft}");
+            Console.WriteLine($"South Left Turn  : {Lights.SouthLeft}");
+            Console.WriteLine($"East Left Turn   : {Lights.EastLeft}");
+            Console.WriteLine($"West Left Turn   : {Lights.WestLeft}");
+            Console.WriteLine($"Current Phase    : {Lights.CurrentGreenPhase}");
+            Console.WriteLine("=========================================\n");
+        }
+
+        public async Task MonitorStatus()
+        {
+            while( true ) 
+            {
+                await Task.Delay(5000);
+                PrintLights();
+            }
+        }
+
+        private async Task ApplyYellow()
+        {
+            Console.WriteLine($"[Light] Switching to YELLOW");
+
+            if (Lights.NorthSouth == LightColor.Green) Lights.NorthSouth = LightColor.Yellow;
+            if (Lights.EastWest == LightColor.Green) Lights.EastWest= LightColor.Yellow;
+            if (Lights.NorthLeft == LightColor.Green) Lights.NorthLeft = LightColor.Yellow;
+            if (Lights.SouthLeft == LightColor.Green) Lights.SouthLeft = LightColor.Yellow;
+            if (Lights.EastLeft == LightColor.Green) Lights.EastLeft = LightColor.Yellow;
+            if (Lights.WestLeft == LightColor.Green) Lights.WestLeft = LightColor.Yellow;
+
+            await Task.Delay(YellowDuration);
+        }
+
+        private async Task MonitorGreenPhase(string phase)
+        {
+            if (phase != "MillerStraight") return;
+
+            int elapsed = 0;
+            while (elapsed < MaxMillerGreen)
+            {
+                await Task.Delay(1000);
+                elapsed += 1000;
+            }
+
+            await TransitionTo("NS");
+        }
+
+        public bool TrainCrossingActive { get; private set; } = false;
+        public DateTime TrainStartTime { get; private set; }
+
+        const int TrainDuration = 10000;
+
+        public void ToggleTrain()
+        {
+            if (!TrainCrossingActive)
+            {
+                TrainCrossingActive = true;
+                TrainStartTime = DateTime.Now;
+
+                Console.WriteLine($"\n[RAILROAD] Train activated at {TrainStartTime:T} — traffic on Miller Parkway will be blocked.");
+            }
+            else
+            {
+                Console.WriteLine("Train is already active.");
+            }
+        }
+
+
+    }
+    
+
+   
+    internal class Program
+    {
+        public static int count120L = 0;
+        public static int countMillerL = 0;
+        public static int countMillerEW = 0;
+
+
+
+        static void Main(string[] args)
+        {
+            TrafficSimulator simulator = new TrafficSimulator();
+            simulator.StartSimulation();
+
+            Console.ReadLine();
+
+            while (true)
+            {
+                Console.WriteLine("Enter command: (T = Toggle Train)");
+                var key = Console.ReadKey(intercept: true).Key;
+
+                if (key == ConsoleKey.T)
+                {
+                    simulator.ToggleTrain();
+                }
+            }
+
+        }
+    }
+
+}
